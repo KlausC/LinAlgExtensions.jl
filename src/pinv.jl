@@ -26,7 +26,7 @@ adjoint(pi::PInv) = Adjoint(pi)
 
 function pinvfact(A::SparseMatrixCSC; tol=SuiteSparse.SPQR._default_tol(A))
     m, n = size(A)
-    if m <= 1000 # n
+    if m <= n
         F = qrfact(A, tol=tol)
         k = rank(F)
         R1 = view(F.R, 1:k, 1:k)
