@@ -137,11 +137,10 @@ matrix is filled with the corresponding elements of `A`.
 function adjustsize(A::AbstractMatrix, m::Integer=size(A,1), n::Integer=size(A,2))
     
     m0, n0 = size(A)
-    nz = nnz(A)
     if n == n0 && m == m0
         A
     elseif A isa SparseMatrixCSC &&
-        ( n0 <= n && ( m > m0 || maximum(view(A.rowval, 1:nz)) <= m < m0 ))
+        ( n0 <= n && ( m > m0 || maximum(view(A.rowval, 1:nnz(A))) <= m < m0 ))
         if n == n0
             acolptr = A.colptr
         else
