@@ -3,39 +3,70 @@ export pinvfact, PInv, PInvFact, rank, adjoint
 
 abstract type PInv{T} <: Factorization{T} end
 
+"""
+Structure to hold pseudo-inverse factorization.
+"""
 mutable struct PInvFact{T} <: PInv{T}
-    m::Int
-    n::Int
-    k::Int
-    F::Factorization{T}
-    G::Factorization{T}
+    m::Int                  # number of rows of input matrix
+    n::Int                  # number of columns
+    k::Int                  # rank
+    F::QRWrapper   # first QR
+    G::QRWrapper   # second QR (in case k < n)
 end
 
-Basepropertynames(PI::PInvFact) = (:R, :Q, :prow, :pcol)
+Base.propertynames(PI::PInvFact) = (:R, :Q, :prow, :pcol)
 
 import LinearAlgebra: rank, adjoint
-rank(pi::PInv) = rank(pi.F)
-adjoint(pi::PInv) = Adjoint(pi)
+rank(psi::PInv) = rank(psi.F)
+rank(psi::Adjoint{<:Number,<:PInv}) = rank(psi.parent)
 
-function pinvfact(A::SparseMatrixCSC; tol=SuiteSparse.SPQR._default_tol(A))
+adjoint(psi::PInv) = Adjoint(psi)
+
+"""
+    pinvfact(A::AbstractMatrix; tol)
+
+Create a Moore-Penrose pseudo-inverse factorization of input matrix A.
+A Moore-Penrose pseudo-inverse is represented as one or two pivoted
+QR-factorizations. The first factorization determines also the rank of the
+matrix. The second one is applied to the transposed of the results of the
+first factorization.
+
+The usual way to calculate a pseudo inverse (pinv) makes use of a "SVD"
+(singular value decomposition) of `A`, which in turn requires an eigenvalue
+decomposition of `A'A`. As the pseudo-inverse itself is typically dense, also
+if the input matrix is sparse, it is expensive to calculate it as a matrix.
+This implementation stores only the results of two QR-decompositions, which
+remain sparse, which makes the method suitable for big sparse matrices as well.
+
+Usage:
+psi = pinvfact(A)
+x = psi * b
+"""
+function pinvfact(A::AbstractMatrix; tolrel::AbstractFloat=0.0, tolabs::AbstractFloat=0.0)
     m, n = size(A)
-    if m <= 100000000000000000000 #n
-        F = qrfact(A, tol=tol)
-        k = rank(F)
-        G = qrfact(hardadjoint(adjustsize(F.R, k, n)), tol=tol/2)
+    # TODO decide if that makes sense:
+    # 1. probable use case m >= n
+    # 2. better error bounds on rank-determining pivots if m < n
+    if m >= n
+        F = qrfact1(A, tolrel=tolrel, tolabs=tolabs)
+        k = rank(F, tolrel=tolrel, tolabs=tolabs)
+        G = qrfact1(hardadjoint(adjustsize(F.R, k, n)), tolrel=tolrel, tolabs=tolabs)
         @assert k == rank(G) "rank defect during second QR factorization"
-        PInvFact(m, n, k, F, G)
+        PInvFact{eltype(A)}(m, n, k, F, G)
     else
-        adjoint(pinvfact(hardadjoint(A), tol=tol))
+        adjoint(pinvfact(hardadjoint(A), tolrel=tolrel, tolabs=tolabs))
     end
 end
 
-Base.size(PI::PInvFact) = (PI.m, PI.n)
-Base.size(PIA::Adjoint{<:Number,<:PInvFact}) = size(PIA.parent)
+Base.size(PI::PInvFact, args...) = size(PI.F, args...)
+Base.size(PIA::Adjoint{<:Number,<:PInv}, args...) = size(PIA.parent, args...)
 
-import Base.*
+import Base.\
 
-function (*)(PI::PInv{T}, A::StridedVecOrMat{T}) where T
+"""
+    Apply the pseudo-inverse factorization to the rhs `A`.
+"""
+function \(PI::PInv{T}, A::StridedVecOrMat{T}) where T
     m, n = size(PI)
     if m != size(A, 1)
         throw(ArgumentError("Dimension mismatch"))
@@ -54,7 +85,10 @@ function (*)(PI::PInv{T}, A::StridedVecOrMat{T}) where T
     y1[invperm(F.pcol), :]
 end
 
-function *(PIT::Adjoint{S}, A::StridedVecOrMat{T}) where {T,S<:PInv{T}}
+"""
+    Apply the adjoint of pseudoinverse factorization to rhs.
+"""
+function \(PIT::Adjoint{<:Number,S}, A::StridedVecOrMat{T}) where {T,S<:PInv{T}}
     PI = PIT.parent
     m, n = size(PI)
     if n != size(A, 1)
@@ -65,10 +99,11 @@ function *(PIT::Adjoint{S}, A::StridedVecOrMat{T}) where {T,S<:PInv{T}}
     G = PI.G
     nr = size(A, 2)
     tmpn = similar(A)
-    tmpn[invperm(F.pcol),:] = A
+    tmpn[invperm(F.pcol),:] = A[G.prow, :]
     x1 = view(tmpn, 1:k, :)
     lmul!(G.Q', x1)
-    x2 = F.Q * ( G.R \ x1 )
+    x1[G.pcol,:] = (G.R \ x1)
+    x2 = F.Q * adjustsize(x1, m, nr)
     x2[F.prow,:]
 end
         

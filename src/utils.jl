@@ -1,12 +1,14 @@
 
-export normcols, normrows, rank, tolabs, tolrel, hardadjoint, adjustsize
+export normcols, normrows, rank, qrfact1
+export tolabsdefault, tolreldefault, hardadjoint, adjustsize
+export QRFactorization, QRWrapper
 
-if VERSION >= v"0.7.0-DEV"
-    get_R(F::Factorization) = F.R
-    get_Q(F::Factorization) = F.Q
-else
-    get_R(F::Factorization) = F[:R]
-    get_Q(F::Factorization) = F[:Q]
+const QRFactorization = Union{QRPivoted,
+                              LinearAlgebra.QRCompactWY,
+                              SuiteSparse.SPQR.QRSparse}
+
+struct QRWrapper{F<:Union{QRPivoted,LinearAlgebra.QRCompactWY,SuiteSparse.SPQR.QRSparse}}
+    parent::F
 end
 
 """
@@ -17,8 +19,8 @@ function normcols(A::SparseMatrixCSC{T}) where T<:Number
     TT = typeof(sqrt(one(eltype(A))))
     z = zero(T)
     sum = z
-    r = Vector{TT}(length(A.colptr)-1)
-    for j = 1:length(r)
+    r = Vector{TT}(undef, A.n)
+    for j = 1:A.n
         k = A.colptr[j+1]
         while i < k
             sum += abs2(A.nzval[i])
@@ -35,12 +37,12 @@ function normcols(A::AbstractMatrix{T}) where T<:Number
 end
 
 """
-    calculate norms rows of a sparse matrix
+    calculate norms of all rows of a sparse matrix
 """
 function normrows(A::SparseMatrixCSC{T}) where T<:Number
     TT = typeof(sqrt(one(eltype(A))))
     r = zeros(TT, size(A, 1))
-    for i = 1:length(A.rowval)
+    for i = 1:nnz(A)
         j = A.rowval[i]
         r[j] += abs2(A.nzval[i])
     end
@@ -53,11 +55,11 @@ end
 
 function hardadjoint(A::SparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     acolptr = zeros(Ti, A.m+1)
-    arowval = similar(A.rowval)
-    anzval = similar(A.nzval)
+    nz = nnz(A)
+    arowval = similar(A.rowval, nz)
+    anzval = similar(A.nzval, nz)
     acolptr[1] = 1
-    nnz = length(anzval)
-    for j = 1:nnz
+    for j = 1:nz
         acolptr[A.rowval[j]+1] += 1
     end
     for k = 1:A.m
@@ -74,7 +76,7 @@ function hardadjoint(A::SparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     end
     fill!(acolptr, zero(Ti))
     acolptr[1] = one(Ti)
-    for j = 1:nnz
+    for j = 1:nz
         acolptr[A.rowval[j]+1] += 1
     end
     for k = 1:A.m
@@ -83,28 +85,46 @@ function hardadjoint(A::SparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     SparseMatrixCSC(A.n, A.m, acolptr, arowval, anzval)
 end
 
+hardadjoint(A::AbstractMatrix) = permutedims(A)
+
 """
     default tolerance absolute for qr-calculations
 """
-function tolabs(A::AbstractMatrix{T}) where T<:Number
+function tolabsdefault(A::AbstractMatrix{T}) where T<:Number
     20maximum(normcols(A)) * eps(real(T)) * max(size(A)...)
 end
 
 """
     default tolerance relative for rank-calculations
 """
-function tolrel(A)
+function tolreldefault(A)
     T = eltype(A)
     sqrt(size(A,1)) * eps(real(T))
 end
 
 """
+    absolute tolerance as a combination of tolrel and tolabs
+"""
+function tolerance(A::AbstractMatrix, pivot::Bool,
+                   tolrel::AbstractFloat, tolabs::AbstractFloat)
+
+    tolabs >= 0 || throw(ArgumentError("absolute tolerance must not be negative"))
+    tolrel >= 0 || throw(ArgumentError("relative tolerance must not be negative"))
+    if tolrel == 0 == tolabs && pivot
+        tolrel = tolreldefault(A)
+    end
+    tolrel == 0 ? tolabs : max(tolrel * maximum(normcols(A)), tolabs)
+end
+
+"""
     rank of a QR-factorization of a matrix
 """
-function LinearAlgebra.rank(F::Factorization, tol=tolrel(F))
-    FR = get_R(F)
-    tt = (tol * maximum(normcols(FR)))^2
-    count(abs2.(diag(get_R(F))) .> tt)
+function LinearAlgebra.rank(F::Union{QRFactorization,QRWrapper};
+                            tolrel::AbstractFloat=0.0, tolabs::AbstractFloat=0.0)
+
+    FR = F.R
+    tol = tolerance(FR, true, tolrel, tolabs)
+    count(abs2.(diag(FR)) .> tol^2)
 end
 
 """
@@ -117,9 +137,11 @@ matrix is filled with the corresponding elements of `A`.
 function adjustsize(A::AbstractMatrix, m::Integer=size(A,1), n::Integer=size(A,2))
     
     m0, n0 = size(A)
+    nz = nnz(A)
     if n == n0 && m == m0
         A
-    elseif A isa SparseMatrixCSC && ( n0 <= n && ( m > m0 || maximum(A.rowval) <= m < m0 ))
+    elseif A isa SparseMatrixCSC &&
+        ( n0 <= n && ( m > m0 || maximum(view(A.rowval, 1:nz)) <= m < m0 ))
         if n == n0
             acolptr = A.colptr
         else
@@ -137,5 +159,69 @@ function adjustsize(A::AbstractMatrix, m::Integer=size(A,1), n::Integer=size(A,2
         B[1:m0,1:n0] = A[1:m0,1:n0]
         B
     end
+end
+
+Base.show(io::IO, qr::QRWrapper) = show(io, qr.parent)
+Base.propertynames(qr::QRWrapper, private::Bool) = (:R, :Q, :pcol, :prow)
+import Base.getproperty
+
+function getproperty(qr::QRWrapper{<:SuiteSparse.SPQR.QRSparse}, d::Symbol)
+    if d == :R || d == :Q || d == :pcol || d == :prow
+        getproperty(qr.parent, d)
+    elseif d == :p
+        qr.parent.pcol
+    else
+        getfield(qr, d)
+    end
+end
+function getproperty(qr::QRWrapper{<:QRPivoted}, d::Symbol)
+    if d == :R || d == :Q || d == :p || d == :P
+        getproperty(qr.parent, d)
+    elseif d == :pcol
+        getproperty(qr.parent, :p)
+    elseif d == :prow
+        collect(1:size(qr.parent.Q, 1))
+    else
+        getfield(qr, d)
+    end
+end
+function getproperty(qr::QRWrapper{<:LinearAlgebra.QRCompactWY}, d::Symbol)
+    if d == :R || d == :Q
+        getproperty(qr.parent, d)
+    elseif d == :pcol
+        collect(1:size(qr.parent.R, 2))
+    elseif d == :prow
+        collect(1:size(qr.parent.Q, 1))
+    else
+        getfield(qr, d)
+    end
+end
+
+Base.size(qrw::QRWrapper, arg...) = size(qrw.parent, arg...)
+
+function qrfact1(A::SparseMatrixCSC;
+                 tolrel::AbstractFloat=0.0, tolabs::AbstractFloat=0.0, pivot=true)
+
+    tol = tolerance(A, pivot, tolrel, tolabs)
+    QRWrapper(qrfact(A, tol=tol))
+end
+
+function qrfact1(A::AbstractMatrix;
+                 tolrel::AbstractFloat=0.0, tolabs::AbstractFloat=0.0, pivot=true)
+
+    tol = pivot ? tolerance(A, pivot, tolrel, tolabs) : 0.0
+    if tol > 0 && !pivot
+        throw(ArgumentError("tol > 0 requires pivot=true"))
+    end
+    qr = qrfact(A, Val(pivot))
+    if tol > 0
+        m = size(qr.factors, 1)
+        k = rank(qr, tolrel=tolrel, tolabs=tolabs)
+        for i = k+1:length(qr.τ)
+            qr.τ[i] = 0
+            qr.factors[i:m,i] = 0
+        end
+    end
+    QRWrapper(qr)
 end
 
