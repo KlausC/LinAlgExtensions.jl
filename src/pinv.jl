@@ -21,6 +21,10 @@ rank(psi::PInv) = rank(psi.F)
 rank(psi::Adjoint{<:Number,<:PInv}) = rank(psi.parent)
 
 adjoint(psi::PInv) = Adjoint(psi)
+function Base.show(io::IO, mime::MIME, apsi::Adjoint{T,<:PInv}) where T 
+    show(io, mime, typeof(apsi))
+    show(io, mime, apsi.parent)
+end
 
 """
     pinvfact(A::AbstractMatrix; tol)
@@ -59,7 +63,7 @@ function pinvfact(A::AbstractMatrix; tolrel::AbstractFloat=0.0, tolabs::Abstract
 end
 
 Base.size(PI::PInvFact, args...) = size(PI.F, args...)
-Base.size(PIA::Adjoint{<:Number,<:PInv}, args...) = size(PIA.parent, args...)
+Base.size(PIA::Adjoint{<:Number,<:PInv}) = reverse(size(PIA.parent))
 
 import Base.\
 
@@ -98,12 +102,11 @@ function \(PIT::Adjoint{<:Number,S}, A::StridedVecOrMat{T}) where {T,S<:PInv{T}}
     F = PI.F
     G = PI.G
     nr = size(A, 2)
-    tmpn = similar(A)
-    tmpn[invperm(F.pcol),:] = A[G.prow, :]
-    x1 = view(tmpn, 1:k, :)
+    x1 = similar(A)
+    x1[invperm(F.pcol),:] = A[G.prow, :]
     lmul!(G.Q', x1)
-    x1[G.pcol,:] = (G.R \ x1)
-    x2 = F.Q * adjustsize(x1, m, nr)
+    x1[invperm(G.pcol),:] = G.R \ x1[1:k,:]
+    x2 = F.Q * adjustsize(x1, k, nr)
     x2[F.prow,:]
 end
         
