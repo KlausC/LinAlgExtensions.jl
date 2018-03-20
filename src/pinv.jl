@@ -50,11 +50,11 @@ function pinvfact(A::AbstractMatrix; tolrel::AbstractFloat=0.0, tolabs::Abstract
     if m >= n
         F = qrfact1(A, tolrel=tolrel, tolabs=tolabs)
         k = rank(F, tolrel=tolrel, tolabs=tolabs)
-        G = qrfact1(hardadjoint(adjustsize(F.R, k, n)), tolrel=tolrel, tolabs=tolabs)
+        G = qrfact1(copy(adjoint(adjustsize(F.R, k, n))), tolrel=tolrel, tolabs=tolabs)
         @assert k == rank(G) "rank defect during second QR factorization"
         PInvFact{eltype(A)}(m, n, k, F, G)
     else
-        adjoint(pinvfact(hardadjoint(A), tolrel=tolrel, tolabs=tolabs))
+        adjoint(pinvfact(copy(adjoint(A)), tolrel=tolrel, tolabs=tolabs))
     end
 end
 

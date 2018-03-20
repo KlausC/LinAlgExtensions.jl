@@ -1,6 +1,6 @@
 
 export normcols, normrows, rank, qrfact1
-export tolabsdefault, tolreldefault, hardadjoint, adjustsize
+export tolabsdefault, tolreldefault, adjustsize
 export QRFactorization, QRWrapper
 
 const QRFactorization = Union{QRPivoted,
@@ -52,40 +52,6 @@ end
 function normrows(A::AbstractMatrix{T}) where T<:Number
     maximum(norm(view(A, i, :)) for i in 1:size(A, 1))
 end
-
-function hardadjoint(A::SparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
-    acolptr = zeros(Ti, A.m+1)
-    nz = nnz(A)
-    arowval = similar(A.rowval, nz)
-    anzval = similar(A.nzval, nz)
-    acolptr[1] = 1
-    for j = 1:nz
-        acolptr[A.rowval[j]+1] += 1
-    end
-    for k = 1:A.m
-        acolptr[k+1] += acolptr[k]
-    end
-    for k = 1:A.n
-        for j = A.colptr[k]:A.colptr[k+1]-1
-            r = A.rowval[j]
-            i = acolptr[r]
-            arowval[i] = k
-            anzval[i] = adjoint(A.nzval[j])
-            acolptr[r] += 1
-        end
-    end
-    fill!(acolptr, zero(Ti))
-    acolptr[1] = one(Ti)
-    for j = 1:nz
-        acolptr[A.rowval[j]+1] += 1
-    end
-    for k = 1:A.m
-        acolptr[k+1] += acolptr[k]
-    end
-    SparseMatrixCSC(A.n, A.m, acolptr, arowval, anzval)
-end
-
-hardadjoint(A::AbstractMatrix) = permutedims(A)
 
 """
     default tolerance absolute for qr-calculations

@@ -35,7 +35,7 @@ function randsparse(m::Integer, n::Integer, k::Integer, p::AbstractFloat)
     0 <= p <= 1 || throw(ArgumentError("probability $p in not in unit interval"))
     
     if m < n
-        return hardadjoint(randsparse(n, m, k, p))
+        return copy(adjoint(randsparse(n, m, k, p)))
     end
     
     e1(x) = x == zero(x) ? one(x) : expm1(x) / x
