@@ -29,7 +29,7 @@ function normcols(A::SparseMatrixCSC{T}) where T<:Number
         r[j] = sum
         sum = z
         end
-    sqrt.(r)
+        sqrt.(real(r))
 end
 
 function normcols(A::AbstractMatrix{T}) where T<:Number
@@ -65,7 +65,7 @@ end
 """
 function tolreldefault(A)
     T = eltype(A)
-    sqrt(size(A,1)) * eps(real(T))
+    sqrt(size(A,1)) * eps(real(T)) * 20
 end
 
 """
@@ -164,11 +164,17 @@ end
 
 Base.size(qrw::QRWrapper, arg...) = size(qrw.parent, arg...)
 
-function qrfact1(A::SparseMatrixCSC;
+function qrfact1(A::SparseMatrixCSC{<:Union{ComplexF64,Float64}};
                  tolrel::AbstractFloat=0.0, tolabs::AbstractFloat=0.0, pivot=true)
 
     tol = tolerance(A, pivot, tolrel, tolabs)
     QRWrapper(qrfact(A, tol=tol))
+end
+
+function qrfact1(A::SparseMatrixCSC;
+                 tolrel::AbstractFloat=0.0, tolabs::AbstractFloat=0.0, pivot=true)
+        
+    throw(ArgumentError("qrfact does not support $(typeof(A))"))
 end
 
 function qrfact1(A::AbstractMatrix;
@@ -188,5 +194,11 @@ function qrfact1(A::AbstractMatrix;
         end
     end
     QRWrapper(qr)
+end
+
+function qrfact1(A::Union{Adjoint, Transpose};
+                 tolrel::AbstractFloat=0.0, tolabs::AbstractFloat=0.0, pivot=true)
+
+    qrfact1(copy(A), tolrel=tolrel, tolabs=tolabs)
 end
 

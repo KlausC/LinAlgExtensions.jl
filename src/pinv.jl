@@ -21,9 +21,9 @@ rank(psi::PInv) = rank(psi.F)
 rank(psi::Adjoint{<:Number,<:PInv}) = rank(psi.parent)
 
 adjoint(psi::PInv) = Adjoint(psi)
-function Base.show(io::IO, mime::MIME, apsi::Adjoint{T,<:PInv}) where T 
-    show(io, mime, typeof(apsi))
-    show(io, mime, apsi.parent)
+function Base.show(io::IO, ::MIME{Symbol("text/plain")}, apsi::Adjoint{T,<:PInv}) where T 
+    print(io, typeof(apsi))
+    print(io, apsi.parent)
 end
 
 """
@@ -50,12 +50,13 @@ function pinvfact(A::AbstractMatrix; tolrel::AbstractFloat=0.0, tolabs::Abstract
     m, n = size(A)
     # TODO decide if that makes sense:
     # 1. probable use case m >= n
-    # 2. better error bounds on rank-determining pivots if m < n
+    # 2. better error bounds on rank-determining pivots if m < n ???
     if m >= n
-        F = qrfact1(A, tolrel=tolrel, tolabs=tolabs)
-        k = rank(F, tolrel=tolrel, tolabs=tolabs)
-        G = qrfact1(copy(adjoint(adjustsize(F.R, k, n))), tolrel=tolrel, tolabs=tolabs)
-        @assert k == rank(G) "rank defect during second QR factorization"
+        tol = tolerance(A, true, tolrel, tolabs)
+        F = qrfact1(A, tolabs=tol)
+        k = rank(F, tolabs=tol)
+        G = qrfact1(copy(adjoint(adjustsize(F.R, k, n))), tolabs=tol/2)
+        @assert k == rank(G) "rank defect $(rank(G)) < $k during second QR factorization"
         PInvFact{eltype(A)}(m, n, k, F, G)
     else
         adjoint(pinvfact(copy(adjoint(A)), tolrel=tolrel, tolabs=tolabs))
@@ -76,7 +77,7 @@ import Base.\
 """
     Apply the pseudo-inverse factorization to the rhs `A`.
 """
-function \(PI::PInv{T}, A::StridedVecOrMat{T}) where T
+function \(PI::PInv{T}, A::StridedVecOrMat{T}) where {T}
     m, n = size(PI)
     if m != size(A, 1)
         throw(ArgumentError("Dimension mismatch"))
@@ -98,7 +99,7 @@ end
 """
     Apply the adjoint of pseudoinverse factorization to rhs.
 """
-function \(PIT::Adjoint{<:Number,S}, A::StridedVecOrMat{T}) where {T,S<:PInv{T}}
+function \(PIT::Adjoint{T,PS}, A::StridedVecOrMat{T}) where {T,PS<:PInv{T}}
     PI = PIT.parent
     m, n = size(PI)
     if n != size(A, 1)
@@ -116,3 +117,13 @@ function \(PIT::Adjoint{<:Number,S}, A::StridedVecOrMat{T}) where {T,S<:PInv{T}}
     (F.Q * adjustsize(x2, m, nr))[invperm(F.prow),:]
 end
         
+function \(PI::PInv{T}, A::StridedVecOrMat{S}) where {T,S}
+    P = promote_type(T, S)
+    PI \ P.(A)
+end
+
+function \(PI::Adjoint{T,PS}, A::StridedVecOrMat{S}) where {T,S,PS<:PInv{T}}
+    P = promote_type(T, S)
+    PI \ P.(A)
+end
+
