@@ -38,16 +38,17 @@ function randsparse(m::Integer, n::Integer, k::Integer, p::AbstractFloat)
         return copy(adjoint(randsparse(n, m, k, p)))
     end
     
-    e1(x) = x == zero(x) ? one(x) : expm1(x) / x
-
     A = sprandn(m, k, p)
-    α = log(one(p) - p)
-    pp = e1(α / k) / e1(α) / k
 
     if n > k
+        e1(x) = x == zero(x) ? one(x) : expm1(x) / x # `(exp(x) - 1) / x` exactly
+        α = log(one(p) - p)
+        pp = e1(α / k) / e1(α) / k
         B = sprandn(k, n-k, pp)
         A = [A A * B]
+        A[:,randperm(n)]
+    else
+        A
     end
-    A
 end
 

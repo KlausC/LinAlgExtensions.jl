@@ -62,6 +62,12 @@ function pinvfact(A::AbstractMatrix; tolrel::AbstractFloat=0.0, tolabs::Abstract
     end
 end
 
+function pinvfact(A::Adjoint{<:AbstractMatrix};
+                  tolrel::AbstractFloat=0.0, tolabs::AbstractFloat=0.0)
+
+    adjoint(pinvfact(adjoint(A), tolrel=tolrel, tolabs=tolabs))
+end
+
 Base.size(PI::PInvFact, args...) = size(PI.F, args...)
 Base.size(PIA::Adjoint{<:Number,<:PInv}) = reverse(size(PIA.parent))
 
@@ -103,10 +109,10 @@ function \(PIT::Adjoint{<:Number,S}, A::StridedVecOrMat{T}) where {T,S<:PInv{T}}
     G = PI.G
     nr = size(A, 2)
     x1 = similar(A)
-    x1[invperm(F.pcol),:] = A[G.prow, :]
+    x1[invperm(G.prow),:] = A[F.pcol, :]
     lmul!(G.Q', x1)
-    x1[invperm(G.pcol),:] = G.R \ x1[1:k,:]
-    x2 = F.Q * adjustsize(x1, k, nr)
-    x2[F.prow,:]
+    x2 = x1[1:k,:]
+    x2[G.pcol,:] = G.R \ x2
+    (F.Q * adjustsize(x2, m, nr))[invperm(F.prow),:]
 end
         
