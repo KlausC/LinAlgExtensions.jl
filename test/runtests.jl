@@ -1,5 +1,10 @@
 using LinAlgExtensions
-using Base.Test
+using Test
+using LinearAlgebra
+using SparseArrays
+using SuiteSparse
 
-# write your own tests here
-@test 1 == 2
+@testset "utils"     begin include("utils.jl") end
+@testset "randutils" begin include("randutils.jl") end
+@testset "pinvfact"  begin include("pinv.jl") end
+

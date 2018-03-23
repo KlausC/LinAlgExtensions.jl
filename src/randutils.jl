@@ -1,5 +1,5 @@
 
-export randorth, randreal, randsparse
+export randorth, randrealsv, randsparse
 
 """
     Construct random orthogonal matrix.
@@ -8,21 +8,21 @@ function randorth(T::Type{<:Real}, m::Integer, n::Integer=m)
     tr = m < n
     n, m = minmax(m, n)
     A = randn(T, m, n)
-    F = qrfact(A, Val{true})
-    Q = get_Q(F)
-    tr ? Q' : Q
+    F = qrfact(A, Val(true))
+    Q = copy(F.Q)[:,1:n]
+    tr ? copy(Q') : Q
 end
 randorth(m::Integer, n::Integer=m) = randorth(Float64, m, n)
 
 """
     Construct random Matrix with given singular values
 """
-function randreal(sv::AbstractVector{T}, m::Integer=0, n::Integer=0) where T<:Real
+function randrealsv(sv::AbstractVector{T}, m::Integer=0, n::Integer=0) where T<:Real
     TT = typeof(sqrt(one(eltype(sv))))
     ls = length(sv)
     m = max(m, ls)
     n = max(n, ls)
-    (( randorth(TT, n, ls) * diagm(sv)) * randorth(TT, m, ls)')'
+    Matrix((( randorth(TT, n, ls) * Diagonal(sv)) * randorth(TT, m, ls)')')
 end
 
 """

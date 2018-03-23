@@ -27,7 +27,7 @@ function Base.show(io::IO, ::MIME{Symbol("text/plain")}, apsi::Adjoint{T,<:PInv}
 end
 
 """
-    pinvfact(A::AbstractMatrix; tol)
+    pinvfact(A::AbstractMatrix; tolrel, tolabs)
 
 Create a Moore-Penrose pseudo-inverse factorization of input matrix A.
 A Moore-Penrose pseudo-inverse is represented as one or two pivoted
@@ -53,9 +53,9 @@ function pinvfact(A::AbstractMatrix; tolrel::AbstractFloat=0.0, tolabs::Abstract
     # 2. better error bounds on rank-determining pivots if m < n ???
     if m >= n
         tol = tolerance(A, true, tolrel, tolabs)
-        F = qrfact1(A, tolabs=tol)
+        F = qrfactors(A, tolabs=tol)
         k = rank(F, tolabs=tol)
-        G = qrfact1(copy(adjoint(adjustsize(F.R, k, n))), tolabs=tol/2)
+        G = qrfactors(copy(adjoint(adjustsize(F.R, k, n))), tolabs=tol/2)
         @assert k == rank(G) "rank defect $(rank(G)) < $k during second QR factorization"
         PInvFact{eltype(A)}(m, n, k, F, G)
     else

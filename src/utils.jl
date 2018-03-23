@@ -1,5 +1,5 @@
 
-export normcols, normrows, rank, qrfact1
+export normcols, normrows, rank, qrfactors, isorth
 export tolabsdefault, tolreldefault, adjustsize
 export QRFactorization, QRWrapper
 
@@ -12,7 +12,7 @@ struct QRWrapper{F<:Union{QRPivoted,LinearAlgebra.QRCompactWY,SuiteSparse.SPQR.Q
 end
 
 """
-    calculate norms all columns of a sparse matrix
+    calculate 2-norms all columns of a sparse matrix
 """
 function normcols(A::SparseMatrixCSC{T}) where T<:Number
     i = 1
@@ -33,11 +33,11 @@ function normcols(A::SparseMatrixCSC{T}) where T<:Number
 end
 
 function normcols(A::AbstractMatrix{T}) where T<:Number
-    maximum(norm(view(A, :, i)) for i in 1:size(A, 2))
+    [norm(view(A, :, i)) for i in 1:size(A, 2)]
 end
 
 """
-    calculate norms of all rows of a sparse matrix
+    calculate 2-norms of all rows of a sparse matrix
 """
 function normrows(A::SparseMatrixCSC{T}) where T<:Number
     TT = typeof(sqrt(one(eltype(A))))
@@ -50,7 +50,7 @@ function normrows(A::SparseMatrixCSC{T}) where T<:Number
 end
 
 function normrows(A::AbstractMatrix{T}) where T<:Number
-    maximum(norm(view(A, i, :)) for i in 1:size(A, 1))
+    [norm(view(A, i, :)) for i in 1:size(A, 1)]
 end
 
 """
@@ -164,20 +164,31 @@ end
 
 Base.size(qrw::QRWrapper, arg...) = size(qrw.parent, arg...)
 
-function qrfact1(A::SparseMatrixCSC{<:Union{ComplexF64,Float64}};
+"""
+    qrfactors(A::AbstractMatrix; tolrel, tolabs, pivot::Bool=true)
+
+Perform QR-factorization of matrix `A` with various matrix types (dense and sparse).
+Allow to specify if pivoting is done or not and a relative - and absolute tolerance
+bounds on the diagonal elements of R.
+Return a common abstract result type `q::QRWrapper` in all cases, which allows to
+access the elements of the factorization `q.Q q.R q.pcol q.prow` in all cases.
+In the case of dense `A` with `pivot=true` and `tolerance != 0`, the tiny elements
+in `R` are set to zero and the corresponding Householder-factors to unity.
+"""
+function qrfactors(A::SparseMatrixCSC{<:Union{ComplexF64,Float64}};
                  tolrel::AbstractFloat=0.0, tolabs::AbstractFloat=0.0, pivot=true)
 
     tol = tolerance(A, pivot, tolrel, tolabs)
     QRWrapper(qrfact(A, tol=tol))
 end
 
-function qrfact1(A::SparseMatrixCSC;
+function qrfactors(A::AbstractSparseMatrix;
                  tolrel::AbstractFloat=0.0, tolabs::AbstractFloat=0.0, pivot=true)
         
     throw(ArgumentError("qrfact does not support $(typeof(A))"))
 end
 
-function qrfact1(A::AbstractMatrix;
+function qrfactors(A::AbstractMatrix;
                  tolrel::AbstractFloat=0.0, tolabs::AbstractFloat=0.0, pivot=true)
 
     tol = pivot ? tolerance(A, pivot, tolrel, tolabs) : 0.0
@@ -196,9 +207,25 @@ function qrfact1(A::AbstractMatrix;
     QRWrapper(qr)
 end
 
-function qrfact1(A::Union{Adjoint, Transpose};
+function qrfactors(A::Union{Adjoint, Transpose};
                  tolrel::AbstractFloat=0.0, tolabs::AbstractFloat=0.0, pivot=true)
 
-    qrfact1(copy(A), tolrel=tolrel, tolabs=tolabs)
+    qrfactors(copy(A), tolrel=tolrel, tolabs=tolabs)
+end
+
+"""
+    isorth(A) -> Bool
+
+Check if matrix `A` is orthogonal/unitary.
+If `A` is not square, check if all columns/rows are mutually orthogonal.
+"""
+function isorth(A::AbstractMatrix)
+    m, n = size(A)
+    tol = eps(eltype(A)) * max(size(A)...) * maximum(abs.(collect(extrema(A))))
+    if m >= n
+        maximum(abs.(A'A - I)) < tol
+    else
+        maximum(abs.(A*A' - I)) < tol
+    end
 end
 
